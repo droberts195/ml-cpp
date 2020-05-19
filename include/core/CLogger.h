@@ -18,6 +18,9 @@
 
 #include <stdio.h> // fileno() is not C++ so need the C header
 
+CORE_EXPORT extern std::ostream* g_InitLog;
+CORE_EXPORT std::int64_t timeNowMs();
+
 namespace ml {
 namespace core {
 

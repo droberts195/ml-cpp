@@ -24,6 +24,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -36,6 +37,16 @@
 __declspec(dllimport)
 #endif
     extern char** environ;
+
+// This will log into a black hole except for the controller
+// process, which will reset this variable
+std::ostream* g_InitLog{new std::ofstream("/dev/null")};
+
+std::int64_t timeNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
 
 namespace {
 const std::string TRACE{"TRACE"};
@@ -288,12 +299,16 @@ bool CLogger::reconfigure(boost::shared_ptr<std::ostream> streamPtr) {
 
 bool CLogger::reconfigureLogToNamedPipe(const std::string& pipeName) {
     if (m_Reconfigured) {
+        *g_InitLog << timeNowMs() << " Cannot log to a named pipe after logger reconfiguration"
+                   << std::endl;
         LOG_ERROR(<< "Cannot log to a named pipe after logger reconfiguration");
         return false;
     }
 
     m_PipeFile = CNamedPipeFactory::openPipeFileWrite(pipeName);
     if (m_PipeFile == nullptr) {
+        *g_InitLog << timeNowMs() << " Cannot log to named pipe " << pipeName
+                   << " as it could not be opened for writing" << std::endl;
         LOG_ERROR(<< "Cannot log to named pipe " << pipeName
                   << " as it could not be opened for writing");
         return false;
@@ -309,9 +324,12 @@ bool CLogger::reconfigureLogToNamedPipe(const std::string& pipeName) {
     COsFileFuncs::dup2(::fileno(m_PipeFile.get()), ::fileno(stderr));
 
     if (this->reconfigureLogJson() == false) {
+        *g_InitLog << timeNowMs() << " reconfigureLogJson() failed" << std::endl;
         return false;
     }
 
+    *g_InitLog << timeNowMs() << " Logger is logging to named pipe " << pipeName
+               << std::endl;
     LOG_DEBUG(<< "Logger is logging to named pipe " << pipeName);
 
     return true;
@@ -323,14 +341,19 @@ bool CLogger::reconfigureLogJson() {
     // interface uses
     auto backend{boost::make_shared<TTextOStream>()};
     // Need a shared_ptr to std::cerr that will NOT delete it
+    *g_InitLog << timeNowMs() << " About to add stream for cerr to log backend"
+               << std::endl;
     backend->add_stream(TOStreamPtr(&std::cerr, boost::null_deleter()));
 
     auto sinkPtr{boost::make_shared<TTextOStreamSynchronousSink>(backend)};
 
     CJsonLogLayout jsonLogLayout;
+    *g_InitLog << timeNowMs() << " About to set log sink formatter to JSON" << std::endl;
     sinkPtr->set_formatter(jsonLogLayout);
 
+    *g_InitLog << timeNowMs() << " About to reset sink" << std::endl;
     resetSink(sinkPtr);
+    *g_InitLog << timeNowMs() << " Reset sink complete" << std::endl;
 
     return true;
 }

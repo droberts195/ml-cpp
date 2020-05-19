@@ -121,8 +121,12 @@ CNamedPipeFactory::TIStreamP CNamedPipeFactory::openPipeStreamRead(const std::st
 CNamedPipeFactory::TOStreamP CNamedPipeFactory::openPipeStreamWrite(const std::string& fileName) {
     TPipeHandle fd = CNamedPipeFactory::initPipeHandle(fileName, true);
     if (fd == -1) {
+        *g_InitLog << timeNowMs() << " Pipe handle for " << fileName
+                   << " was -1" << std::endl;
         return TOStreamP();
     }
+    *g_InitLog << timeNowMs() << " Returning stream for pipe handle " << fd
+               << " for " << fileName << std::endl;
     using TRetryingFileDescriptorSinkStream =
         boost::iostreams::stream<CRetryingFileDescriptorSink>;
     return TOStreamP(new TRetryingFileDescriptorSinkStream(
@@ -176,6 +180,10 @@ std::string CNamedPipeFactory::defaultPath() {
 CNamedPipeFactory::TPipeHandle
 CNamedPipeFactory::initPipeHandle(const std::string& fileName, bool forWrite) {
     if (!SIGPIPE_IGNORED) {
+        *g_InitLog << timeNowMs()
+                   << " Failed to ignore SIGPIPE - this process will not terminate "
+                      "gracefully if a process it is writing to via a named pipe dies"
+                   << std::endl;
         LOG_WARN(<< "Failed to ignore SIGPIPE - this process will not terminate "
                     "gracefully if a process it is writing to via a named pipe dies");
     }
@@ -184,9 +192,13 @@ CNamedPipeFactory::initPipeHandle(const std::string& fileName, bool forWrite) {
 
     // If the name already exists, ensure it refers directly (i.e. not via a
     // symlink) to a named pipe
+    *g_InitLog << timeNowMs() << " Before lstat of " << fileName << std::endl;
     COsFileFuncs::TStat statbuf;
     if (COsFileFuncs::lstat(fileName.c_str(), &statbuf) == 0) {
         if ((statbuf.st_mode & S_IFMT) != S_IFIFO) {
+            *g_InitLog << timeNowMs() << " Unable to create named pipe " << fileName
+                       << " - a file of this name already exists, but it is not a FIFO"
+                       << std::endl;
             LOG_ERROR(<< "Unable to create named pipe " << fileName
                       << " - a file "
                          "of this name already exists, but it is not a FIFO");
@@ -194,19 +206,27 @@ CNamedPipeFactory::initPipeHandle(const std::string& fileName, bool forWrite) {
         }
         if ((statbuf.st_mode &
              (S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH)) != 0) {
+            *g_InitLog << timeNowMs() << " Will not use pre-existing named pipe " << fileName
+                       << " - it has permissions that are too open" << std::endl;
             LOG_ERROR(<< "Will not use pre-existing named pipe " << fileName
                       << " - it has permissions that are too open");
             return -1;
         }
     } else {
         if (errno != ENOENT) {
+            *g_InitLog << timeNowMs() << " lstat of named pipe " << fileName
+                       << " failed with unexpected error " << ::strerror(errno)
+                       << std::endl;
             LOG_WARN(<< "lstat of named pipe " << fileName
                      << " failed with unexpected error " << ::strerror(errno));
         }
 
         // The file didn't exist, so create a new FIFO for it, with permissions
         // for the current user only
+        *g_InitLog << timeNowMs() << " Before mkfifo of " << fileName << std::endl;
         if (::mkfifo(fileName.c_str(), S_IRUSR | S_IWUSR) == -1) {
+            *g_InitLog << timeNowMs() << " Unable to create named pipe "
+                       << fileName << ": " << ::strerror(errno) << std::endl;
             LOG_ERROR(<< "Unable to create named pipe " << fileName << ": "
                       << ::strerror(errno));
             return -1;
@@ -216,17 +236,24 @@ CNamedPipeFactory::initPipeHandle(const std::string& fileName, bool forWrite) {
 
     // The open call here will block if there is no other connection to the
     // named pipe
+    *g_InitLog << timeNowMs() << " Before open of " << fileName << std::endl;
     int fd = COsFileFuncs::open(fileName.c_str(), forWrite ? COsFileFuncs::WRONLY
                                                            : COsFileFuncs::RDONLY);
     if (fd == -1) {
+        *g_InitLog << timeNowMs() << " Unable to open named pipe " << fileName
+                   << (forWrite ? " for writing: " : " for reading: ")
+                   << ::strerror(errno) << std::endl;
         LOG_ERROR(<< "Unable to open named pipe " << fileName
                   << (forWrite ? " for writing: " : " for reading: ")
                   << ::strerror(errno));
     } else {
+        *g_InitLog << timeNowMs() << " Opened " << fileName << std::endl;
         // Write a test character to the pipe - this is really only necessary on
         // Windows, but doing it on *nix too will mean the inability of the Java
         // code to tolerate the test character will be discovered sooner.
         if (forWrite && COsFileFuncs::write(fd, &TEST_CHAR, sizeof(TEST_CHAR)) <= 0) {
+            *g_InitLog << timeNowMs() << " Unable to test named pipe "
+                       << fileName << ": " << ::strerror(errno) << std::endl;
             LOG_ERROR(<< "Unable to test named pipe " << fileName << ": "
                       << ::strerror(errno));
             COsFileFuncs::close(fd);
@@ -240,6 +267,7 @@ CNamedPipeFactory::initPipeHandle(const std::string& fileName, bool forWrite) {
     // deleted file should still be accessible on *nix to the file handles that
     // already had it open when it was deleted.
     if (madeFifo) {
+        *g_InitLog << timeNowMs() << " About to unlink " << fileName << std::endl;
         ::unlink(fileName.c_str());
     }
 
