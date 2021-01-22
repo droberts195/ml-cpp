@@ -155,7 +155,9 @@ Download the graphical installer for Python 3.7.9 from <https://www.python.org/f
 
 Install using all the default options.  When the installer completes a Finder window pops up.  Double click the `Install Certificates.command` file in this folder to install the SSL certificates Python needs.
 
-### PyTorch 1.7.1
+(Note that although this installer only installs an x86_64 Python, this still works on aarch64 thanks to Rosetta 2, just with a delay on first use.  This is acceptable for the time being as we do not redistribute any part of Python but only use it as a build tool.)
+
+### PyTorch 1.8.0
 
 PyTorch requires that certain Python modules are installed.  To install them:
 
@@ -166,7 +168,7 @@ sudo /Library/Frameworks/Python.framework/Versions/3.7/bin/pip3.7 install instal
 Then obtain the PyTorch code:
 
 ```
-git clone --depth=1 --branch=v1.7.1 https://github.com/pytorch/pytorch.git
+git clone --depth=1 --branch=v1.8.0 https://github.com/pytorch/pytorch.git
 cd pytorch
 git submodule sync
 git submodule update --init --recursive
@@ -179,6 +181,9 @@ export BUILD_TEST=OFF
 export BUILD_CAFFE2=OFF
 export USE_NUMPY=OFF
 export USE_DISTRIBUTED=OFF
+[ $(uname -m) = x86_64 ] || export QNNPACK=OFF
+export PYTORCH_BUILD_VERSION=1.8.0
+export PYTORCH_BUILD_NUMBER=1
 /Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7 setup.py install
 ```
 
